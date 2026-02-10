@@ -50,12 +50,21 @@
         linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px);
       background-size: 48px 48px;
       pointer-events: none;
+      z-index: 1;
+    }
+
+    .particle-canvas {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
       z-index: 0;
+      pointer-events: none;
     }
 
     .container {
       position: relative;
-      z-index: 1;
+      z-index: 2;
       text-align: center;
     }
 
@@ -89,10 +98,157 @@
   </style>
 </head>
 <body>
+  <canvas class="particle-canvas" id="particleCanvas"></canvas>
   <div class="container">
     <h1 class="brand">MASUQUE RAI</h1>
     <div class="line"></div>
     <p class="tagline">Under Construction</p>
   </div>
+  <script>
+    const canvas = document.getElementById('particleCanvas');
+    const ctx = canvas.getContext('2d');
+
+    const state = {
+      particles: [],
+      mouse: { x: 0, y: 0, active: false },
+      dpr: window.devicePixelRatio || 1
+    };
+
+    const config = {
+      count: 240,
+      dotMin: 0.9,
+      dotMax: 2.8,
+      strandWidth: 22,
+      flowAmp: 70,
+      flowAmp2: 28,
+      flowFreq: 5.2,
+      flowFreq2: 9.4,
+      flowSpeed: 0.6,
+      flowSpeed2: 0.35,
+      maxSpeed: 3.2,
+      repulseRadius: 190,
+      repulseStrength: 2.6,
+      spring: 0.06,
+      friction: 0.82,
+      colorStart: [80, 210, 255],
+      colorEnd: [40, 120, 255],
+      alpha: 0.6
+    };
+
+    const rand = (min, max) => min + Math.random() * (max - min);
+
+    const resize = () => {
+      const { innerWidth, innerHeight } = window;
+      state.dpr = window.devicePixelRatio || 1;
+      canvas.width = Math.floor(innerWidth * state.dpr);
+      canvas.height = Math.floor(innerHeight * state.dpr);
+      canvas.style.width = `${innerWidth}px`;
+      canvas.style.height = `${innerHeight}px`;
+      ctx.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
+    };
+
+    const createParticles = () => {
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      const count = Math.max(160, Math.floor(width / 4));
+      const margin = Math.max(60, width * 0.08);
+
+      const ts = Array.from({ length: count }, () => Math.pow(Math.random(), 0.9)).sort((a, b) => a - b);
+      state.particles = ts.map((t) => {
+        const r = Math.round(config.colorStart[0] + (config.colorEnd[0] - config.colorStart[0]) * t);
+        const g = Math.round(config.colorStart[1] + (config.colorEnd[1] - config.colorStart[1]) * t);
+        const b = Math.round(config.colorStart[2] + (config.colorEnd[2] - config.colorStart[2]) * t);
+        return {
+          t,
+          margin,
+          x0: 0,
+          y0: 0,
+          x: 0,
+          y: 0,
+          vx: 0,
+          vy: 0,
+          jitterX: rand(-14, 14),
+          jitterY: rand(-18, 18),
+          radius: rand(config.dotMin, config.dotMax),
+          phase: rand(0, Math.PI * 2),
+          phase2: rand(0, Math.PI * 2),
+          color: `rgba(${r}, ${g}, ${b}, ${config.alpha})`
+        };
+      });
+    };
+
+    const handleMouseMove = (event) => {
+      state.mouse.x = event.clientX;
+      state.mouse.y = event.clientY;
+      state.mouse.active = true;
+    };
+
+    const handleMouseLeave = () => {
+      state.mouse.active = false;
+    };
+
+    const drawDot = (particle) => {
+      ctx.beginPath();
+      ctx.arc(particle.x, particle.y, particle.radius, 0, Math.PI * 2);
+      ctx.fillStyle = particle.color;
+      ctx.fill();
+    };
+
+    const update = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const time = performance.now() / 1000;
+
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      const centerY = height * 0.5;
+
+      for (const p of state.particles) {
+        const baseX = p.margin + p.t * (width - p.margin * 2);
+        const flow = Math.sin(p.t * config.flowFreq + time * config.flowSpeed + p.phase) * config.flowAmp;
+        const flow2 = Math.sin(p.t * config.flowFreq2 - time * config.flowSpeed2 + p.phase2) * config.flowAmp2;
+        const strandX = Math.cos(p.t * config.flowFreq2 + time * config.flowSpeed2 + p.phase2) * config.strandWidth;
+        const targetX = baseX + strandX + p.jitterX;
+        const targetY = centerY + flow + flow2 + p.jitterY;
+
+        const dx = targetX - p.x;
+        const dy = targetY - p.y;
+        p.vx += dx * config.spring;
+        p.vy += dy * config.spring;
+
+        if (state.mouse.active) {
+          const mx = p.x - state.mouse.x;
+          const my = p.y - state.mouse.y;
+          const dist = Math.hypot(mx, my);
+          if (dist < config.repulseRadius) {
+            const force = (1 - dist / config.repulseRadius) * config.repulseStrength;
+            p.vx += (mx / (dist || 1)) * force;
+            p.vy += (my / (dist || 1)) * force;
+          }
+        }
+
+        p.vx = Math.max(-config.maxSpeed, Math.min(config.maxSpeed, p.vx));
+        p.vy = Math.max(-config.maxSpeed, Math.min(config.maxSpeed, p.vy));
+        p.vx *= config.friction;
+        p.vy *= config.friction;
+        p.x += p.vx;
+        p.y += p.vy;
+
+        drawDot(p);
+      }
+
+      requestAnimationFrame(update);
+    };
+
+    resize();
+    createParticles();
+    update();
+
+    window.addEventListener('resize', () => {
+      resize();
+      createParticles();
+    });
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseleave', handleMouseLeave);
+  </script>
 </body>
 </html>
